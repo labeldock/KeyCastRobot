@@ -1,6 +1,12 @@
-import { app, BrowserWindow, shell, ipcMain } from 'electron'
+import { app, BrowserWindow, shell, ipcMain, globalShortcut, clipboard } from 'electron'
 import { release } from 'node:os'
 import { join } from 'node:path'
+import { openIPCResponseAsync, openIPCSentChennel } from './MainSupport'
+import { topicEvent } from '../../src/shared/utils/eventHelper.js'
+const clipboardListener = require("clipboard-event")
+const robot = require("@jitsi/robotjs")
+
+
 
 // The built directory structure
 //
@@ -41,44 +47,103 @@ const url = process.env.VITE_DEV_SERVER_URL
 const indexHtml = join(process.env.DIST, 'index.html')
 
 async function createWindow() {
-  win = new BrowserWindow({
-    title: 'Main window',
-    icon: join(process.env.PUBLIC, 'favicon.ico'),
-    webPreferences: {
-      preload,
-      // Warning: Enable nodeIntegration and disable contextIsolation is not secure in production
-      // Consider using contextBridge.exposeInMainWorld
-      // Read more on https://www.electronjs.org/docs/latest/tutorial/context-isolation
-      nodeIntegration: true,
-      contextIsolation: false,
-    },
-  })
+  if(!win) {
+    win = new BrowserWindow({
+      title: 'Main window',
+      icon: join(process.env.PUBLIC, 'favicon.ico'),
+      webPreferences: {
+        preload,
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    })
 
-  if (process.env.VITE_DEV_SERVER_URL) { // electron-vite-vue#298
-    win.loadURL(url)
-    // Open devTool if the app is not packaged
-    win.webContents.openDevTools()
-  } else {
-    win.loadFile(indexHtml)
+
+    if (process.env.VITE_DEV_SERVER_URL) {
+      win.loadURL(url)
+      win.webContents.openDevTools()
+    } else {
+      win.loadFile(indexHtml)
+    }
   }
+  return win
 
   // Test actively push message to the Electron-Renderer
-  win.webContents.on('did-finish-load', () => {
-    win?.webContents.send('main-process-message', new Date().toLocaleString())
-  })
+  // win.webContents.on('did-finish-load', () => {
+  //   win?.webContents.send('main-process-message', new Date().toLocaleString())
+  // })
 
   // Make all links open with the browser, not with the application
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (url.startsWith('https:')) shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // win.webContents.setWindowOpenHandler(({ url }) => {
+  //   if (url.startsWith('https:')) shell.openExternal(url)
+  //   return { action: 'deny' }
+  // })
 }
 
-app.whenReady().then(createWindow)
+const HOTKEY_CALL = "CommandOrControl+Shift+c"
+const HOTKEY_RESUME = "CommandOrControl+Shift+x"
 
+app.whenReady()
+.then(()=>{
+  const staticState = {
+    clipboardText: clipboard.readText()
+  }
+
+  const topicClipboard = topicEvent()
+
+  // clipboard listen
+  clipboardListener.startListening()
+  clipboardListener.on('change', () => {
+    const text = clipboard.readText()
+    staticState.clipboardText = text
+    topicClipboard.emit({ type: 'change', text })
+  })
+
+  openIPCSentChennel("clipboardChange",(paylaod, callback)=>{
+    callback(staticState.clipboardText)
+    function handleClipboardChange ({ type, text }){
+      if(type === 'change'){
+        callback(text)
+      }
+    }
+    topicClipboard.addListener(handleClipboardChange)
+    return ()=>{
+      topicClipboard.removeListener(handleClipboardChange)
+    }
+  })
+
+  openIPCResponseAsync("mainTypeWrite", (value)=>{
+    robot.typeString(value);
+  })
+
+  globalShortcut.register(HOTKEY_CALL, ()=>{
+    if(win){
+      win.close()
+    } else {
+      createWindow()
+    }
+    console.log(`Press ${HOTKEY_CALL}`)
+  })
+
+  globalShortcut.register(HOTKEY_RESUME, ()=>{
+    console.log("hotkey ss")
+    setTimeout(()=>{
+      robot.typeString(staticState.clipboardText);
+    },1000)
+  })
+
+  // 종료 직전
+  app.on('will-quit', () => {
+    globalShortcut.unregister(HOTKEY_RESUME)
+  })
+})
+
+
+
+// 윈도우가 모두 닫아지면 종료합니다.
 app.on('window-all-closed', () => {
   win = null
-  if (process.platform !== 'darwin') app.quit()
+  //if (process.platform !== 'darwin') app.quit()
 })
 
 app.on('second-instance', () => {

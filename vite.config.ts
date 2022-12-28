@@ -1,4 +1,5 @@
 import { rmSync } from 'node:fs'
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import electron from 'vite-plugin-electron'
@@ -39,7 +40,7 @@ export default defineConfig({
       {
         entry: 'electron/preload/index.ts',
         onstart(options) {
-          // Notify the Renderer-Process to reload the page when the Preload-Scripts build is complete, 
+          // Notify the Renderer-Process to reload the page when the Preload-Scripts build is complete,
           // instead of restarting the entire Electron App.
           options.reload()
         },
@@ -68,4 +69,16 @@ export default defineConfig({
     }
   })() : undefined,
   clearScreen: false,
+  define:{
+    // 'process.env.PACKAGE_MANIFEST_STR': `\`${packageManifest}\``
+  },
+  resolve: {
+    alias: {
+      '@main': path.join(__dirname, 'electron/main'),
+      '@preload': path.join(__dirname, 'electron/preload'),
+      '@renderer': path.join(__dirname, 'src'),
+      '~': path.join(__dirname, 'src'),
+    }
+  },
+  publicDir: path.join(__dirname, 'src', 'static'),
 })
